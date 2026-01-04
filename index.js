@@ -9,7 +9,7 @@ const dbname = "recipe_book";
 const mongoUri = process.env.MONGO_URI;
 
 // GEMINI AI
-const { ai, MODEL } = require('./gemini');
+const { ai, MODEL, generateSearchParams } = require('./gemini');
 
 // 1a. create the app
 const app = express();
@@ -84,48 +84,11 @@ async function main() {
             
             const allTags = await db.collection('tags').distinct('name');
             const allCuisines = await db.collection('cuisines').distinct('name');
+            const ingredients = await db.collection('ingredients').distinct('name');
 
-            const systemPrompt = `You are a recipe search query converter. Convert the user's natural language query into a structured search format.
-
-Available tags: ${allTags.join(', ')}
-Available cuisines: ${allCuisines.join(', ')}
-
-Output a JSON object with the following fields, using only the values from the available lists and empty arrays if no values apply:
-- tags: array of strings of matching tags (OR logic - recipe has ANY of these)
-- cuisines: array of cuisine names (OR logic - recipe has ANY of these)
-- ingredients: array of string of ingredients (AND logic - recipe must have ALL of these)
-
-Rules:
-- Only use tags from the available tags list
-- Only use cuisines from the available cuisines list
-- For ingredients, extract any food items mentioned
-- Keep values lowercase
-- Omit fields that don't apply to the query
-- Return ONLY valid JSON, no explanation with no code fences
-
-Semantic understanding - infer meaning from natural language and apply it to tags, cuisine and ingredients
-
-
-Example input: "italian pasta with chicken and garlic"
-Example output: {"cuisines":["italian"],"ingredients":["chicken","garlic"]}
-
-Example input: "southeast asian recipes"
-Example output: {"tags":["thai","vietnamese","chinese","indian"]}
-
-Example input: "quick no meat dinner"
-Example output: {"tags":["quick","easy","vegetarian","vegan","dinner"]}
-
-Example input: "healthy thai soup with coconut and lemongrass"
-Example output: {"cuisines":["thai"],"ingredients":["coconut","lemongrass"],"tags":["healthy","light"]}`;
-
-            const aiResponse = await ai.models.generateContent({
-                model: MODEL,
-                contents: systemPrompt + '\n\nUser query: ' + query,
-                responseMimeType: "application/json"
-            });
-
-            const searchParams = JSON.parse(aiResponse.text);
+            const searchParams = await generateSearchParams(query, allTags, allCuisines, ingredients);  
             res.json({ searchParams });
+            
             
         } catch (error) {
             console.error('Error converting query:', error);
