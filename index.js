@@ -9,7 +9,7 @@ const dbname = "recipe_book";
 const mongoUri = process.env.MONGO_URI;
 
 // GEMINI AI
-const { ai, MODEL, generateSearchParams } = require('./gemini');
+const { ai, MODEL, generateSearchParams, generateRecipe } = require('./gemini');
 
 // 1a. create the app
 const app = express();
@@ -168,6 +168,74 @@ async function main() {
         } catch (error) {
             console.error('Error creating recipe:', error);
             res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.post('/ai/recipe', async (req, res) => {
+        try {
+            const { recipeText } = req.body;
+
+            if (!recipeText) {
+                return res.status(400).json({ error: 'Recipe text is required' });
+            }
+
+            // Get available cuisines and tags
+            const availableCuisines = await db.collection('cuisines').distinct('name');
+            const availableTags = await db.collection('tags').distinct('name');
+
+            // Generate structured recipe from natural language
+            const parsedRecipe = await generateRecipe(recipeText, availableCuisines, availableTags);
+
+            // Validate that the AI-generated cuisine exists
+            const cuisineDoc = await db.collection('cuisines').findOne({ name: parsedRecipe.cuisine });
+            if (!cuisineDoc) {
+                return res.status(400).json({ 
+                    error: 'AI generated invalid cuisine',
+                    generatedCuisine: parsedRecipe.cuisine,
+                    parsedRecipe 
+                });
+            }
+
+            // Validate that all AI-generated tags exist
+            const tagDocs = await db.collection('tags').find({ name: { $in: parsedRecipe.tags } }).toArray();
+            
+            if (tagDocs.length !== parsedRecipe.tags.length) {
+                return res.status(400).json({ 
+                    error: 'AI generated invalid tags',
+                    parsedRecipe 
+                });
+            }
+
+            // Create the new recipe object
+            const newRecipe = {
+                name: parsedRecipe.name,
+                cuisine: {
+                    _id: cuisineDoc._id,
+                    name: cuisineDoc.name
+                },
+                prepTime: parsedRecipe.prepTime,
+                cookTime: parsedRecipe.cookTime,
+                servings: parsedRecipe.servings,
+                ingredients: parsedRecipe.ingredients,
+                instructions: parsedRecipe.instructions,
+                tags: tagDocs.map(tag => ({
+                    _id: tag._id,
+                    name: tag.name
+                }))
+            };
+
+            // Insert the new recipe into the database
+            const result = await db.collection('recipes').insertOne(newRecipe);
+
+            // Send back the created recipe
+            res.status(201).json({
+                message: 'Recipe created successfully from AI',
+                recipeId: result.insertedId,
+                parsedRecipe: parsedRecipe
+            });
+        } catch (error) {
+            console.error('Error creating AI recipe:', error);
+            res.status(500).json({ error: 'Internal server error', details: error.message });
         }
     });
 

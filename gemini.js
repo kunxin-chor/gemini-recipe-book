@@ -83,6 +83,102 @@ Example output: {"cuisines":["thai"],"ingredients":["coconut","lemongrass"],"tag
     return searchParams;
 }
 
+async function generateRecipe(recipeText, availableCuisines, availableTags) {
+    const systemPrompt = `You are a recipe parser. Convert the user's natural language recipe description into a structured recipe format.
+
+Available cuisines: ${availableCuisines.join(', ')}
+Available tags: ${availableTags.join(', ')}
+
+Parse the recipe and output a JSON object with the following structure:
+{
+  "name": string,
+  "cuisine": string (must be from available cuisines list),
+  "prepTime": number (in minutes),
+  "cookTime": number (in minutes),
+  "servings": number,
+  "ingredients": array of objects with structure { "name": string, "quantity": string, "unit": string },
+  "instructions": array of strings (step-by-step),
+  "tags": array of strings (must be from available tags list)
+}
+
+Rules:
+- Extract recipe name from the text (use proper capitalization)
+- Choose the most appropriate cuisine from the available list (use proper capitalization)
+- Infer prep time and cook time if not explicitly stated
+- Parse ingredients with name, quantity, and unit (ingredient names in lowercase)
+- Break down instructions into clear steps (use proper sentence case with capital first letter and periods)
+- Select relevant tags from the available list based on the recipe characteristics (tags in lowercase)
+- Use proper English grammar and capitalization
+- Return ONLY valid JSON, no explanation
+
+Example input: "Make a quick Italian pasta carbonara. You'll need 400g spaghetti, 200g bacon, 4 eggs, 100g parmesan, and black pepper. First, cook the pasta. While it cooks, fry the bacon until crispy. Beat the eggs with parmesan. Drain pasta, mix with bacon, then stir in egg mixture off heat. Serves 4, takes about 30 minutes total."
+
+Example output: {
+  "name": "Pasta Carbonara",
+  "cuisine": "Italian",
+  "prepTime": 10,
+  "cookTime": 20,
+  "servings": 4,
+  "ingredients": [
+    {"name": "spaghetti", "quantity": "400", "unit": "g"},
+    {"name": "bacon", "quantity": "200", "unit": "g"},
+    {"name": "eggs", "quantity": "4", "unit": "whole"},
+    {"name": "parmesan", "quantity": "100", "unit": "g"},
+    {"name": "black pepper", "quantity": "to taste", "unit": ""}
+  ],
+  "instructions": [
+    "Cook the pasta according to package directions.",
+    "Fry the bacon until crispy.",
+    "Beat the eggs with parmesan cheese.",
+    "Drain the pasta and mix with bacon.",
+    "Remove from heat and stir in egg mixture."
+  ],
+  "tags": ["quick", "easy", "italian"]
+}`;
+
+    const aiResponse = await ai.models.generateContent({
+        model: MODEL,
+        contents: systemPrompt + '\n\nRecipe text: ' + recipeText,
+        config: {
+            responseMimeType: "application/json",
+            responseJsonSchema: {
+                type: "object",
+                properties: {
+                    name: { type: "string" },
+                    cuisine: { type: "string" },
+                    prepTime: { type: "number" },
+                    cookTime: { type: "number" },
+                    servings: { type: "number" },
+                    ingredients: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                name: { type: "string" },
+                                quantity: { type: "string" },
+                                unit: { type: "string" }
+                            },
+                            required: ["name", "quantity", "unit"]
+                        }
+                    },
+                    instructions: {
+                        type: "array",
+                        items: { type: "string" }
+                    },
+                    tags: {
+                        type: "array",
+                        items: { type: "string" }
+                    }
+                },
+                required: ["name", "cuisine", "prepTime", "cookTime", "servings", "ingredients", "instructions", "tags"]
+            }
+        }
+    });
+
+    const recipe = JSON.parse(aiResponse.text);
+    return recipe;
+}
+
 module.exports = {
-    ai, MODEL, generateSearchParams
+    ai, MODEL, generateSearchParams, generateRecipe
 }
